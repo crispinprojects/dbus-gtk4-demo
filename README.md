@@ -1,4 +1,4 @@
-# GTK4 D-Bus Getting Started
+# D-Bus Getting Started (GTK4, C)
 
 This small sample project demonstrates how to get started with D-Bus using GTK4 and C. 
 
