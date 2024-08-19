@@ -301,7 +301,7 @@ Open D-Feet and search for the D-Bus demo application which will be located in t
 
 ![](d-feet-demo.png)
 
-## Notifications
+# Notifications
 
 Sending notification using D-Bus proved to be more challenging. D-Feet showed that the service that I needed was "org.freedesktop.Notifications" with the interface having the same name and a method called "Notify". See screenshot below.
 
@@ -339,13 +339,7 @@ Hunting throught the xml file reveals the arguments that are needed for the "Not
     </method>
 ```
 
-These are specified in [GVariant](https://docs.gtk.org/glib/gvariant-format-strings.html) text format where, for example, "s" means string, "u" means unsigned integer of type guint32, "as" means an array of strings, "a{sv}" is a dictionary of string-variant pairs and "i" is an integer of type gint32. Aparently the dictionary variant "a{sv}" should be represented like:
-
-```
-"{'String': <'variant_value'>, 'String2': <'variant_value'>}"
-```
-
-The variant_value could hold a string in one case and an integer in another.
+These are specified in [GVariant](https://docs.gtk.org/glib/gvariant-format-strings.html) text format where, for example, "s" means string, "u" means unsigned integer of type guint32, "as" means an array of strings, "a{sv}" is a dictionary of string-variant pairs and "i" is an integer of type gint32. Aparently the variant_value in the dictionary "a{sv}" could hold a integer one case and a string in another.
 
 After some more digging around on the internet I came across the argument names.
 
@@ -364,7 +358,7 @@ After some more digging around on the internet I came across the argument names.
 "</method>"
 ```
 
-At this point I was wondering how do you represent the GVariants "as" and "a{sv}" with C code. My first attempt at creating a GVariant array of type 'as' (array of strings) used the GVariantBuilder approach. See code snip below.
+At this point I was wondering how do you represent the GVariants "as" and "a{sv}" with C code. My first attempt at creating a GVariant array of type 'as' (array of strings) used the GVariantBuilder approach below.
 
 ```
 GVariantBuilder action_builder;
@@ -375,14 +369,14 @@ gchar *str; //printing
 g_variant_builder_init(&action_builder, G_VARIANT_TYPE_ARRAY);
 g_variant_builder_add(&action_builder, "s", "");
 g_variant_builder_add(&action_builder, "s", "Quit");
-	
+
 //print GVariant array of type 'as'
 notify_actions = g_variant_builder_end(&action_builder);
 str = g_variant_print(notify_actions, TRUE);
 g_print("notify_actions: %s\n", str);
 ```
 
-However, when I used this as the parameter arg_5 in a D-Bus connection call I got a core dumped system crash. I checked the GVariant type using
+However, when I used the GVariant "notify_actions" as arg_5 in a D-Bus connection call I got a core dumped system crash. I checked the GVariant type using
 
 ```
 gboolean is_valid_type = g_variant_is_of_type(notify_actions, G_VARIANT_TYPE("as"));
@@ -390,53 +384,53 @@ gboolean is_valid_type = g_variant_is_of_type(notify_actions, G_VARIANT_TYPE("as
 
 which confirmed it was a GVariant of type "as". Very strange! 
 
-The best help I could find was from the Gentoo people on this [Gentoo forum](https://forums.gentoo.org/viewtopic-p-6934878.html). It showed an example where the address of the action_builder (&action_builder in my case) is used for arg_5.
+The best help I could find was from the Gentoo people on this [Gentoo forum](https://forums.gentoo.org/viewtopic-p-6934878.html). It showed an example where the address of the action_builder (&action_builder) is used for arg_5.
 
-The code below shows how I put everything together to create a D-Bus notification. The function [g_dbus_connection_call](https://docs.gtk.org/gio/method.DBusConnection.call.html) has been used to invoke the "Notify"" method on the interface called "org.freedesktop.Notifications" using the object_path "/org/freedesktop/Notifications" owned by "org.freedesktop.Notifications". The arguments for the "Notify" method are the types discussed above. A GAsyncReadyCallback called "notification_sent" is used to call
+The code below shows how I put everything together to create a D-Bus notification. The function [g_dbus_connection_call](https://docs.gtk.org/gio/method.DBusConnection.call.html) has been used to invoke the "Notify"" method on the interface called "org.freedesktop.Notifications" using the object_path "/org/freedesktop/Notifications" owned by "org.freedesktop.Notifications". The arguments for the "Notify" method are the GVariant types discussed above. A GAsyncReadyCallback called "notification_sent" is used to call
 [g_dbus_connection_call_finish](https://docs.gtk.org/gio/method.DBusConnection.call_finish.html) to finish the operation started with the g_dbus_connection_call().
 
 ```
     const char* title;
-	const char* body;
-	
-	title= "D-Bus Notification";
-	body = "Hello World Message";
-	
-	//ACTIONS
-	g_auto(GVariantBuilder) actions_builder = G_VARIANT_BUILDER_INIT (G_VARIANT_TYPE_ARRAY);	
-	g_variant_builder_add(&actions_builder, "s", "");
-	g_variant_builder_add(&actions_builder, "s", "Quit");
-	//GVariant *notify_actions = g_variant_builder_end(&actions_builder); //dont do this
-	
-	//HINTS		
-	g_auto(GVariantBuilder) hints_builder = G_VARIANT_BUILDER_INIT (G_VARIANT_TYPE_DICTIONARY);	
-	g_variant_builder_add(&hints_builder, "{sv}", "urgency", g_variant_new_int32(1));	
-	g_autoptr(GVariant) notify_hints = g_variant_builder_end(&hints_builder);
-	
-	g_autoptr(GVariant) parameters = g_variant_new("(susssas@a{sv}i)",
-	"app_name",
-	-1,
-	"",
-	title,
-	body,
-	&actions_builder,	
-	notify_hints,
-	-1);
-	
-	g_autoptr(GDBusConnection) conn= g_application_get_dbus_connection (g_application_get_default());
-	
-	g_dbus_connection_call (conn,
-	"org.freedesktop.Notifications",
-	"/org/freedesktop/Notifications",
-	"org.freedesktop.Notifications",
-	"Notify",
-	parameters,
-	G_VARIANT_TYPE ("(u)"),
-	G_DBUS_CALL_FLAGS_NONE,
-	-1, 
-	NULL,
-	notification_sent, 
-	NULL);	    
+    const char* body;
+
+    title= "D-Bus Notification";
+    body = "Hello World Message";
+
+    //ACTIONS
+    g_auto(GVariantBuilder) actions_builder = G_VARIANT_BUILDER_INIT (G_VARIANT_TYPE_ARRAY);    
+    g_variant_builder_add(&actions_builder, "s", "");
+    g_variant_builder_add(&actions_builder, "s", "Quit");
+    //GVariant *notify_actions = g_variant_builder_end(&actions_builder); //dont do this
+
+    //HINTS        
+    g_auto(GVariantBuilder) hints_builder = G_VARIANT_BUILDER_INIT (G_VARIANT_TYPE_DICTIONARY);    
+    g_variant_builder_add(&hints_builder, "{sv}", "urgency", g_variant_new_int32(1));    
+    g_autoptr(GVariant) notify_hints = g_variant_builder_end(&hints_builder);
+
+    g_autoptr(GVariant) parameters = g_variant_new("(susssas@a{sv}i)",
+    "app_name",
+    -1,
+    "",
+    title,
+    body,
+    &actions_builder,    
+    notify_hints,
+    -1);
+
+    g_autoptr(GDBusConnection) conn= g_application_get_dbus_connection (g_application_get_default());
+
+    g_dbus_connection_call (conn,
+    "org.freedesktop.Notifications",
+    "/org/freedesktop/Notifications",
+    "org.freedesktop.Notifications",
+    "Notify",
+    parameters,
+    G_VARIANT_TYPE ("(u)"),
+    G_DBUS_CALL_FLAGS_NONE,
+    -1, 
+    NULL,
+    notification_sent, 
+    NULL);        
 ```
 
 The screenshot below shows how the D-Bus notification is displayed. 
@@ -449,15 +443,15 @@ The code works but when a "g_dbus_connection_call" is made there is GLib warning
 GLib-CRITICAL **: .... g_atomic_ref_count_dec: assertion 'old_value > 0' failed
 ```
 
-This can be due to an object which needs to be freed. GLib provides a set of [macros](https://docs.gtk.org/glib/auto-cleanup.html) for the automatic clean up of variables when they go out of scope. Consquently, I have used these. The g_auto(TypeName) is used to declare a variable with automatic clean up. The g_autoptr(TypeName) helper is used to declare a pointer variable with automatic clean up and so on. However, even when using these macros or making other code changes the warning persists.
+GLib provides a set of [macros](https://docs.gtk.org/glib/auto-cleanup.html) for the automatic clean up of variables when they go out of scope. The g_auto(TypeName) is used to declare a variable with automatic clean up. The g_autoptr(TypeName) helper is used to declare a pointer variable with automatic clean up and so on. However, even when using these macros the warning persists.
 
-Stumped by what is causing this warning I did a "gdbus-codegen" on the org.freedesktop.Notifications.xml file generated from introspection. The gdbus-codegen function is the D-Bus code and documentation generator. You do it like this.
+A critical warning from GLib suggests that the GDBus API is not being used correctly. Consequently, I did a "gdbus-codegen" on the org.freedesktop.Notifications.xml file generated from introspection. The gdbus-codegen function is the GDBus code and documentation generator. You do it like this.
 
 ```
 gdbus-codegen --interface-prefix=org.freedesktop.Notifications --c-namespace FDNotify --generate-c-code=fdnotify org.freedesktop.Notifications.xml
 ```
 
-This generates two files called fdnotify.h and fdnotify.c. You can use these files to generate a noticiation as shown below. Again see the[Gentoo forum](https://forums.gentoo.org/viewtopic-p-6934878.html) mentioned above for more details.
+The "gdbus-codegen" functions generates two files called fdnotify.h and fdnotify.c. You can use these files to generate a notification as shown below. Again see the [Gentoo forum](https://forums.gentoo.org/viewtopic-p-6934878.html) mentioned above for more details.
 
 ```
 // gcc -o gnotify -g `pkg-config --cflags --libs gio-unix-2.0` gnotify.c fdnotify.c
@@ -523,14 +517,74 @@ int main(int argc, char** argv)
    g_object_unref(proxy);
 }
 ```
+
 However, testing the code generated by the offical D-Bus "gdbus-codegen" function also gives the same GLib warning as my code.
+
 ```
 GLib-CRITICAL **: ... g_atomic_ref_count_dec: assertion 'old_value > 0' failed
 ```
+
 Again this is strange.
 
-The notification code that I have developed here is unlikley to be best practice. I had to use introspection to produce a minimal working example. I am still uncertain why there is a "g_atomic_ref_count_dec" warning on both my code and that generated from the offical D-Bus "gdbus-codegen" function.
+I wondered if the warning could be related to how the connection is created in my code and so I tried a different approach as shown below.
 
+```
+g_autoptr(GDBusConnection) conn = NULL;
+    g_autofree gchar *bus_address = NULL;
+    g_autoptr(GError) err = NULL;
+
+    if (bus_address == NULL)
+    {    
+        bus_address = g_dbus_address_get_for_bus_sync (
+        G_BUS_TYPE_SESSION,
+        NULL, //cancellable,
+        &err);
+    }
+
+    g_print("bus address = %s\n", bus_address);
+
+    if (err != NULL)
+    {
+    g_print("SESSION bus UNAVAILABLE\n");     
+    }
+    else {
+    g_print("SESSION bus available\n");
+    }
+
+    conn = g_dbus_connection_new_for_address_sync (
+       bus_address,
+       G_DBUS_CONNECTION_FLAGS_AUTHENTICATION_CLIENT |
+       G_DBUS_CONNECTION_FLAGS_MESSAGE_BUS_CONNECTION,
+       NULL,  //observer
+       NULL, //cancellable,
+       &err
+       );
+
+    const gchar* dbus_name =g_dbus_connection_get_unique_name(conn);
+    g_print("dbus_name = %s\n", dbus_name);    
+```
+
+Again GDBus critical warning occured. 
+
+Using the GDB (GNU Project Debugger) tool for C 
+
+```
+G_DEBUG=fatal-warnings gdb --args ./demo
+```
+
+with run resulted in
+
+```
+Thread 4 "gdbus" received signal SIGTRAP, Trace/breakpoint trap.
+[Switching to Thread 0x7fffe66006c0 (LWP 22353)]
+_g_log_abort (breakpoint=<optimized out>) at ../glib/gmessages.c:426
+426         G_BREAKPOINT ();                                                                                                              
+(gdb) 
+```
+
+[GDBus criticals](https://gitlab.gnome.org/GNOME/glib/-/issues/1620)
+
+In summary, I had to use introspection to produce a minimal working example to send notifications using org.freedesktop.Notifications.Notify. I am still uncertain why there is a "g_atomic_ref_count_dec" warning on both my code and that generated from the offical D-Bus "gdbus-codegen" function. The automatic clean up of variables when they go out of scope does not appear to resolve this issue. Nor does changing the way in which the D-Bus connection is created. I will post an update if I find out what is causing the warning.
 
 ## Client Server Application
 
