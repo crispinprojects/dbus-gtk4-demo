@@ -37,7 +37,7 @@ D-Bus has two buses (i) a single system bus and (ii) the session bus. The system
 
 ## D-Feet
 
-D-Feet is the GNOME D-Bus browser, viewer and degugger application
+D-Feet is the GNOME D-Bus browser, viewer and debugger application
 
 With Fedora you install it using the terminal command below.
 
@@ -80,7 +80,7 @@ GDBusMessage* call_message = g_dbus_message_new_method_call (
 
 ## Synchronously Sending a Message
 
-The function [g_dbus_connection_send_message_with_reply_sync](https://docs.gtk.org/gio/method.DBusConnection.send_message_with_reply_sync.html) synchronously sends the call message (defined above) to the connection and blocks the calling thread until a reply is received or the timeout is reached. The g_dbus_connection_send_message_with_reply() is the asynchronous version of this method and is dicussed in the next section. 
+The function [g_dbus_connection_send_message_with_reply_sync](https://docs.gtk.org/gio/method.DBusConnection.send_message_with_reply_sync.html) synchronously sends the call message (defined above) to the connection and blocks the calling thread until a reply is received or the timeout is reached. The g_dbus_connection_send_message_with_reply() is the asynchronous version of this method and is discussed in the next section. 
 
 The code below demonstrates using the application connection and the call_message to obtain a reply_message. The [g_dbus_message_get_body](https://docs.gtk.org/gio/method.DBusMessage.get_body.html) gets the body of a message as a GVariant data type. The function g_variant_get_child_value is used to read the first child item out of the GVariant container instance and the function g_variant_get_string is used to convert this to a string for printing purposes. Finally the message objects and variant object are unreferenced.
 
@@ -364,27 +364,22 @@ After some more digging around on the internet I came across the argument names.
 "</method>"
 ```
 
-At this point I was wondering how do you represent the GVariants "as" and "a{sv}" with C code. My first attempt at creating a GVariant array of type 'as' (array of strings) used the GVariantBuilder approach below. See code snip below.
+At this point I was wondering how do you represent the GVariants "as" and "a{sv}" with C code. My first attempt at creating a GVariant array of type 'as' (array of strings) used the GVariantBuilder approach. See code snip below.
 
 ```
-const gchar *actions[] = {"", "Quit"};    
-GVariantBuilder builder;
+GVariantBuilder action_builder;
 GVariant *notify_actions;
-gchar *str; //for printing
+gchar *str; //printing
 
-// Create a GVariant array of type 'as' (array of strings) 
-
-g_variant_builder_init(&builder, G_VARIANT_TYPE_ARRAY);
-
-for (int i = 0; i < G_N_ELEMENTS(actions); i++) {
-    g_variant_builder_add(&builder, "s", actions[i]);
-}
-
-notify_actions = g_variant_builder_end(&builder);
-
-// print the GVariant array of type 'as' 
-    str = g_variant_print(notify_actions, TRUE);
-    g_print("notify_actions: %s\n", str);
+//Create a GVariant array of type 'as' (array of strings) 
+g_variant_builder_init(&action_builder, G_VARIANT_TYPE_ARRAY);
+g_variant_builder_add(&action_builder, "s", "");
+g_variant_builder_add(&action_builder, "s", "Quit");
+	
+//print GVariant array of type 'as'
+notify_actions = g_variant_builder_end(&action_builder);
+str = g_variant_print(notify_actions, TRUE);
+g_print("notify_actions: %s\n", str);
 ```
 
 However, when I used this as the parameter arg_5 in a D-Bus connection call I got a core dumped system crash. I checked the GVariant type using
@@ -393,155 +388,149 @@ However, when I used this as the parameter arg_5 in a D-Bus connection call I go
 gboolean is_valid_type = g_variant_is_of_type(notify_actions, G_VARIANT_TYPE("as"));
 ```
 
-which confirmed it was a GVariant of type "as". Very strange!
+which confirmed it was a GVariant of type "as". Very strange! 
 
-The best help I could find was from the Gentoo people on this [Gentoo forum](https://forums.gentoo.org/viewtopic-p-6934878.html).
+The best help I could find was from the Gentoo people on this [Gentoo forum](https://forums.gentoo.org/viewtopic-p-6934878.html). It showed an example where the address of the action_builder (&action_builder in my case) is used for arg_5.
 
-I did a gdbus-codegen on the org.freedesktop.Notifications.xml file generated from interspection. The gdbus-codegen function is the D-Bus code and documentation generator. You do it like this.
+The code below shows how I put everything together to create a D-Bus notification. The function [g_dbus_connection_call](https://docs.gtk.org/gio/method.DBusConnection.call.html) has been used to invoke the "Notify"" method on the interface called "org.freedesktop.Notifications" using the object_path "/org/freedesktop/Notifications" owned by "org.freedesktop.Notifications". The arguments for the "Notify" method are the types discussed above. A GAsyncReadyCallback called "notification_sent" is used to call
+[g_dbus_connection_call_finish](https://docs.gtk.org/gio/method.DBusConnection.call_finish.html) to finish the operation started with the g_dbus_connection_call().
+
+```
+    const char* title;
+	const char* body;
+	
+	title= "D-Bus Notification";
+	body = "Hello World Message";
+	
+	//ACTIONS
+	g_auto(GVariantBuilder) actions_builder = G_VARIANT_BUILDER_INIT (G_VARIANT_TYPE_ARRAY);	
+	g_variant_builder_add(&actions_builder, "s", "");
+	g_variant_builder_add(&actions_builder, "s", "Quit");
+	//GVariant *notify_actions = g_variant_builder_end(&actions_builder); //dont do this
+	
+	//HINTS		
+	g_auto(GVariantBuilder) hints_builder = G_VARIANT_BUILDER_INIT (G_VARIANT_TYPE_DICTIONARY);	
+	g_variant_builder_add(&hints_builder, "{sv}", "urgency", g_variant_new_int32(1));	
+	g_autoptr(GVariant) notify_hints = g_variant_builder_end(&hints_builder);
+	
+	g_autoptr(GVariant) parameters = g_variant_new("(susssas@a{sv}i)",
+	"app_name",
+	-1,
+	"",
+	title,
+	body,
+	&actions_builder,	
+	notify_hints,
+	-1);
+	
+	g_autoptr(GDBusConnection) conn= g_application_get_dbus_connection (g_application_get_default());
+	
+	g_dbus_connection_call (conn,
+	"org.freedesktop.Notifications",
+	"/org/freedesktop/Notifications",
+	"org.freedesktop.Notifications",
+	"Notify",
+	parameters,
+	G_VARIANT_TYPE ("(u)"),
+	G_DBUS_CALL_FLAGS_NONE,
+	-1, 
+	NULL,
+	notification_sent, 
+	NULL);	    
+```
+
+The screenshot below shows how the D-Bus notification is displayed. 
+
+![](dbus-notification.png)
+
+The code works but when a "g_dbus_connection_call" is made there is GLib warning as below.
+
+```
+GLib-CRITICAL **: .... g_atomic_ref_count_dec: assertion 'old_value > 0' failed
+```
+
+This can be due to an object which needs to be freed. GLib provides a set of [macros](https://docs.gtk.org/glib/auto-cleanup.html) for the automatic clean up of variables when they go out of scope. Consquently, I have used these. The g_auto(TypeName) is used to declare a variable with automatic clean up. The g_autoptr(TypeName) helper is used to declare a pointer variable with automatic clean up and so on. However, even when using these macros or making other code changes the warning persists.
+
+Stumped by what is causing this warning I did a "gdbus-codegen" on the org.freedesktop.Notifications.xml file generated from introspection. The gdbus-codegen function is the D-Bus code and documentation generator. You do it like this.
 
 ```
 gdbus-codegen --interface-prefix=org.freedesktop.Notifications --c-namespace FDNotify --generate-c-code=fdnotify org.freedesktop.Notifications.xml
 ```
 
-Hunting through the generated code for the Notify method revealed the notify call as shown below.
+This generates two files called fdnotify.h and fdnotify.c. You can use these files to generate a noticiation as shown below. Again see the[Gentoo forum](https://forums.gentoo.org/viewtopic-p-6934878.html) mentioned above for more details.
 
 ```
-void
-fdnotify__call_notify (
-    FDNotify *proxy,
-    const gchar *arg_arg_0,
-    guint arg_arg_1,
-    const gchar *arg_arg_2,
-    const gchar *arg_arg_3,
-    const gchar *arg_arg_4,
-    const gchar *const *arg_arg_5,
-    GVariant *arg_arg_6,
-    gint arg_arg_7,
-    GCancellable *cancellable,
-    GAsyncReadyCallback callback,
-    gpointer user_data)
+// gcc -o gnotify -g `pkg-config --cflags --libs gio-unix-2.0` gnotify.c fdnotify.c
+
+
+#include "fdnotify.h"
+#include <stdio.h>
+#include <glib.h>
+
+#define NOTIFY_OBJECT "/org/freedesktop/Notifications"
+#define NOTIFY_INTERFACE "org.freedesktop.Notifications"
+
+int main(int argc, char** argv)
 {
-  g_dbus_proxy_call (G_DBUS_PROXY (proxy),
-    "Notify",
-    g_variant_new ("(susss^as@a{sv}i)",
-                   arg_arg_0,
-                   arg_arg_1,
-                   arg_arg_2,
-                   arg_arg_3,
-                   arg_arg_4,
-                   arg_arg_5,
-                   arg_arg_6,
-                   arg_arg_7),
-    G_DBUS_CALL_FLAGS_NONE,
-    -1,
-    cancellable,
-    callback,
-    user_data);
-}
-```
+   FDNotify *proxy;
+   GError* error = NULL;
+   const gchar *const notify_actions[3] = {"v1","v2",NULL};
+   GVariantBuilder notify_hints_builder;
+   GVariant* notify_hints;
 
-This revealed that the arg_5 actions call has the type
+   g_type_init();
 
-```
-const gchar *const *arg_arg_5,
-```
-
-and the arg_6 hints call has the type
-
-```
-GVariant *arg_arg_6,
-```
-
-I ended up defining arg_5 (the actions) as
-
-```
-const gchar *const notify_actions[3] = {"","Quit",NULL};
-```
-
-and for arg_6 (the hints) as
-
-```
-GVariant *notify_hints, *notify_entry[1];
-```
-
-The code below shows how I put everything together to create a D-Bus notification. The function [g_dbus_connection_call_sync](https://docs.gtk.org/gio/method.DBusConnection.call_sync.html) has been used which synchronously invokes the "Notify"" method on the interface called "org.freedesktop.Notifications" using the object_path "/org/freedesktop/Notifications" owned by "org.freedesktop.Notifications". The arguments for the "Notify" method are the types discussed above.
-
-```
-    GDBusConnection *conn;  
-    GError* err = NULL;  
-    const gchar *const notify_actions[3] = {"","Quit",NULL};
-    GVariant *notify_hints, *notify_entry[1];
-    GVariant* result;
-    GVariantBuilder b;
-    guint32 out;
-
-   conn= g_application_get_dbus_connection (g_application_get_default());
-   const gchar* dbus_name =g_dbus_connection_get_unique_name(conn);
-
-   notify_entry[0] = g_variant_new_dict_entry(
-               g_variant_new_string("abc"), g_variant_new_variant(g_variant_new_uint32(123))
-            );
-
-   notify_hints = g_variant_new_array(G_VARIANT_TYPE("{sv}"),
-            notify_entry,
-            G_N_ELEMENTS(notify_entry)
-         );
-
-      g_variant_builder_init(&b,G_VARIANT_TYPE_ARRAY);     
+   proxy = fdnotify__proxy_new_for_bus_sync(G_BUS_TYPE_SESSION,
+                  G_DBUS_PROXY_FLAGS_NONE,
+                  NOTIFY_INTERFACE,
+                  NOTIFY_OBJECT,
+                  NULL,
+                  &error);
 
 
-      for(int i=0;notify_actions[i];i++)
-      g_variant_builder_add(&b,"s",notify_actions[i]);
-
-
-    GVariant *parameters = g_variant_new("(susssas@a{sv}i)",
-       "app_name",
-         -1,
-         "",
-         "title1",
-         "message body",
-         &b,
-         notify_hints,
-         -1);
-
-
-      result =g_dbus_connection_call_sync(conn,
-       "org.freedesktop.Notifications",
-       "/org/freedesktop/Notifications",
-       "org.freedesktop.Notifications",
-       "Notify",
-      parameters,  
-      NULL,
-      G_DBUS_CALL_FLAGS_NONE,
-      -1,
-      NULL,
-      &err
-      );
-
-      out=g_variant_get_uint32(g_variant_get_child_value(result,0));
-
-
-   if(err)
+   if(error)
    {
-     g_print("g_dbus_connection_call_sync error\n");  
+      fprintf(stderr,"fdnotify__proxy_new_for_bus_sync: %s\n",error->message);
+      g_error_free(error);
+      return 1;
    }
 
-   //clean up
-   for(int i=0; i<G_N_ELEMENTS(notify_entry); i++)
-   g_variant_unref(notify_entry[i]);  
+   g_variant_builder_init(&notify_hints_builder, G_VARIANT_TYPE("a{sv}"));
+   g_variant_builder_add(&notify_hints_builder, "{sv}", "foo", g_variant_new_int32 (42));
+   notify_hints=g_variant_builder_end(&notify_hints_builder);
+
+   fdnotify__call_notify_sync(proxy,
+            "app_name",
+            -1,
+            "",
+            "summary",
+            "body",
+            notify_actions,
+            notify_hints,
+            -1,
+            NULL,
+            NULL,
+            &error);
+
+   if(error)
+   {
+      fprintf(stderr,"fdnotify__call_notify_sync: %s\n",error->message);
+      g_error_free(error);
+      return 1;
+   }
+
    g_variant_unref(notify_hints);
-
-   g_error_free(err);
-   g_variant_builder_unref (&b);
-   g_variant_unref(parameters);
-   g_variant_unref(result); 
-
-   g_object_unref(conn); 
+   g_object_unref(proxy);
+}
 ```
+However, testing the code generated by the offical D-Bus "gdbus-codegen" function also gives the same GLib warning as my code.
+```
+GLib-CRITICAL **: ... g_atomic_ref_count_dec: assertion 'old_value > 0' failed
+```
+Again this is strange.
 
-The screenshot below shows how the D-Bus notification is displayed. It works but the code has been developed by trial and error and so may not be best practice. I had to use introspection and code generation to get a working example.
+The notification code that I have developed here is unlikley to be best practice. I had to use introspection to produce a minimal working example. I am still uncertain why there is a "g_atomic_ref_count_dec" warning on both my code and that generated from the offical D-Bus "gdbus-codegen" function.
 
-![](dbus-notification.png)
 
 ## Client Server Application
 
@@ -551,7 +540,7 @@ A minimal D-BUS client server sample application can be found [here](https://git
 
 This project illustrates how to get started with D-BUS communications providing some GTK4 C sample code. It shows how a notification can be sent using the "org.freedesktop.Notifications.Notify" method. Hopefully, the sample code will be helpful.
 
-If just want a simple approach to sending notifications then just install and use the [libnotify](https://gitlab.gnome.org/GNOME/libnotify) library as sending notification is as simple as the code snip shown below.
+If you just want a simple approach to sending notifications then install and use the [libnotify](https://gitlab.gnome.org/GNOME/libnotify) library as sending a notification is as simple as the code snip shown below.
 
 ```
     #include <libnotify/notify.h>
@@ -568,7 +557,7 @@ If just want a simple approach to sending notifications then just install and us
 
 See my full code example [here](https://github.com/crispinprojects/notification-tester). 
 
-If the libnotify library is not available on your system or you just do not want to use it you could do system "gdbus call" in your code as shown below.
+If the libnotify library is not available on your system, or you just do not want to use it, you could do a system "gdbus call" in your code as shown below.
 
 ```
     gchar * command_str ="gdbus call ";

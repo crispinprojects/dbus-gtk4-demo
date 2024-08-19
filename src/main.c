@@ -179,88 +179,75 @@ static void callbk_btn_sync(GtkButton *button, gpointer  user_data)
     g_object_unref(reply_message);	
 }
 //=====================================================================
+static void notification_sent (GObject *source_object,  GAsyncResult *result, gpointer user_data)
+{
+  g_print("notification sent called\n");
+  GVariant *val;
+  GError *error = NULL;
+ 
+  val = g_dbus_connection_call_finish (G_DBUS_CONNECTION (source_object), result, &error);
+  if (val)
+    {
+      g_print("Notification sent: Connection call finished \n");
+      g_variant_unref (val);
+    }
+  else
+    {
+      g_print("Unable to send notifications using org.freedesktop.Notifications\n"); 
+      //process error here 
+      //g_warning ("Unable to send notifications using org.freedesktop.Notifications: %s",
+                     //error->message);
+      g_error_free (error);    
 
+    }
+
+}
 
 //=====================================================================
 static void callbk_notification(GtkButton *button, gpointer  user_data)
 {
-	g_print("Notify\n");
+	g_print(" Call org.freedesktop.Notifications.Notify\n");
 	
-	GDBusConnection *conn;  
-	GError* err = NULL;  
-	const gchar *const notify_actions[3] = {"","Quit",NULL};
-	GVariant *notify_hints, *notify_entry[1];
-	GVariant* result;
-	GVariantBuilder b;
-	guint32 out;
-   
-   conn= g_application_get_dbus_connection (g_application_get_default());
-   const gchar* dbus_name =g_dbus_connection_get_unique_name(conn);
+	const char* title;
+	const char* body;
+	title= "D-Bus Notification";
+	body = "Hello World Message";
 	
-   notify_entry[0] = g_variant_new_dict_entry(
-               g_variant_new_string("abc"), g_variant_new_variant(g_variant_new_uint32(123))
-            );
-
-   notify_hints = g_variant_new_array(G_VARIANT_TYPE("{sv}"),
-            notify_entry,
-            G_N_ELEMENTS(notify_entry)
-         );
-                
-      g_variant_builder_init(&b,G_VARIANT_TYPE_ARRAY);
-      
-       //for(int j=0; j<G_N_ELEMENTS(notify_actions); j++)
-		//g_print("notify_actions = %s\n",notify_actions[j]);
-		
-      
-      for(int i=0;notify_actions[i];i++)
-      g_variant_builder_add(&b,"s",notify_actions[i]);
-      
-     
-    GVariant *parameters = g_variant_new("(susssas@a{sv}i)",
-       "app_name",
-         -1,
-         "",
-         "title1",
-         "message body",
-         &b,
-         notify_hints,
-         -1);
-     
-      
-      result =g_dbus_connection_call_sync(conn,
-       "org.freedesktop.Notifications",
-       "/org/freedesktop/Notifications",
-       "org.freedesktop.Notifications",
-       "Notify",
-      parameters,  
-      NULL,
-      G_DBUS_CALL_FLAGS_NONE,
-      -1,
-      NULL,
-      &err
-      );
-            
-      out=g_variant_get_uint32(g_variant_get_child_value(result,0));
-      //g_print("out =%d\n",out);
-    
-   if(err)
-   {
-     g_print("g_dbus_connection_call_sync error\n");  
-   }
-     
-   //clean up
-   for(int i=0; i<G_N_ELEMENTS(notify_entry); i++)
-   g_variant_unref(notify_entry[i]);  
-   g_variant_unref(notify_hints);
-   
-   g_error_free(err);
-   g_variant_builder_unref (&b);
-   g_variant_unref(parameters);
-   g_variant_unref(result); 
-  
-   g_object_unref(conn); 
-   
-   	
+	//ACTIONS
+	g_auto(GVariantBuilder) actions_builder = G_VARIANT_BUILDER_INIT (G_VARIANT_TYPE_ARRAY);	
+	g_variant_builder_add(&actions_builder, "s", "");
+	g_variant_builder_add(&actions_builder, "s", "Quit");
+	//GVariant *notify_actions = g_variant_builder_end(&actions_builder); //dont do this
+	
+	//HINTS		
+	g_auto(GVariantBuilder) hints_builder = G_VARIANT_BUILDER_INIT (G_VARIANT_TYPE_DICTIONARY);	
+	g_variant_builder_add(&hints_builder, "{sv}", "urgency", g_variant_new_int32(1));	
+	g_autoptr(GVariant) notify_hints = g_variant_builder_end(&hints_builder);
+	
+	g_autoptr(GVariant) parameters = g_variant_new("(susssas@a{sv}i)",
+	"app_name",
+	-1,
+	"",
+	title,
+	body,
+	&actions_builder,	
+	notify_hints,
+	-1);
+	
+	g_autoptr(GDBusConnection) conn= g_application_get_dbus_connection (g_application_get_default());
+	
+	g_dbus_connection_call (conn,
+	"org.freedesktop.Notifications",
+	"/org/freedesktop/Notifications",
+	"org.freedesktop.Notifications",
+	"Notify",
+	parameters,
+	G_VARIANT_TYPE ("(u)"),
+	G_DBUS_CALL_FLAGS_NONE,
+	-1, 
+	NULL,
+	notification_sent, 
+	NULL);	
 }
 
 //=====================================================================
