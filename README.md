@@ -445,13 +445,13 @@ GLib-CRITICAL **: .... g_atomic_ref_count_dec: assertion 'old_value > 0' failed
 
 GLib provides a set of [macros](https://docs.gtk.org/glib/auto-cleanup.html) for the automatic clean up of variables when they go out of scope. The g_auto(TypeName) is used to declare a variable with automatic clean up. The g_autoptr(TypeName) helper is used to declare a pointer variable with automatic clean up and so on. However, even when using these macros the warning persists.
 
-A critical warning from GLib suggests that the GDBus API is not being used correctly. Consequently, I did a "gdbus-codegen" on the org.freedesktop.Notifications.xml file generated from introspection. The gdbus-codegen function is the GDBus code and documentation generator. You do it like this.
+A critical warning from GLib suggests that the GDBus API is not being used correctly. Consequently, I did a "gdbus-codegen" on the org.freedesktop.Notifications.xml file generated from introspection. The gdbus-codegen function is the D-Bus code and documentation generator. You do it like this.
 
 ```
 gdbus-codegen --interface-prefix=org.freedesktop.Notifications --c-namespace FDNotify --generate-c-code=fdnotify org.freedesktop.Notifications.xml
 ```
 
-The "gdbus-codegen" functions generates two files called fdnotify.h and fdnotify.c. You can use these files to generate a notification as shown below. Again see the [Gentoo forum](https://forums.gentoo.org/viewtopic-p-6934878.html) mentioned above for more details.
+The "gdbus-codegen" functions generates two files called fdnotify.h and fdnotify.c. You can use these files to generate a notification as shown below. Again see the[Gentoo forum](https://forums.gentoo.org/viewtopic-p-6934878.html) mentioned above for more details.
 
 ```
 // gcc -o gnotify -g `pkg-config --cflags --libs gio-unix-2.0` gnotify.c fdnotify.c
@@ -566,13 +566,13 @@ g_autoptr(GDBusConnection) conn = NULL;
 
 Again GDBus critical warning occured. 
 
-Using the GDB (GNU Project Debugger) tool for C 
+If you change the Makefile to add the gcc -g option and recompile and then you can run GDB (GNU Project Debugger tool for C) on the demo binary as shown below.
 
 ```
 G_DEBUG=fatal-warnings gdb --args ./demo
 ```
 
-with run resulted in
+Using run and sending a notification resulted in
 
 ```
 Thread 4 "gdbus" received signal SIGTRAP, Trace/breakpoint trap.
@@ -582,7 +582,7 @@ _g_log_abort (breakpoint=<optimized out>) at ../glib/gmessages.c:426
 (gdb) 
 ```
 
-[GDBus criticals](https://gitlab.gnome.org/GNOME/glib/-/issues/1620)
+See this [GDBus criticals](https://gitlab.gnome.org/GNOME/glib/-/issues/1620) post.
 
 In summary, I had to use introspection to produce a minimal working example to send notifications using org.freedesktop.Notifications.Notify. I am still uncertain why there is a "g_atomic_ref_count_dec" warning on both my code and that generated from the offical D-Bus "gdbus-codegen" function. The automatic clean up of variables when they go out of scope does not appear to resolve this issue. Nor does changing the way in which the D-Bus connection is created. I will post an update if I find out what is causing the warning.
 
@@ -607,6 +607,7 @@ If you just want a simple approach to sending notifications then install and use
     notify = notify_notification_new(title, body, NULL);
     notify_notification_set_urgency (notify, NOTIFY_URGENCY_NORMAL);
     notify_notification_show(notify,NULL); 
+    notify_uninit();
 ```
 
 See my full code example [here](https://github.com/crispinprojects/notification-tester). 
